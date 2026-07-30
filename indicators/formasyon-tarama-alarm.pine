@@ -1,0 +1,355 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════
+//  BIST FORMASYON TARAMA VE ALARM SİSTEMİ
+// ───────────────────────────────────────────────────────────────────────────
+//  • Grafikteki sembol üzerinde otomatik formasyon tespiti ve çizimi:
+//    Dikdörtgen, Simetrik Üçgen, Yükselen Üçgen, Alçalan Üçgen,
+//    Yükselen Kama, Düşen Kama, Yükselen Kanal, Düşen Kanal
+//  • 10 adede kadar ek sembolü aynı anda tarayan tablo:
+//    SEM | FİYAT | YAPI | DURUM | SEVİYE | MESAFE % | HEDEF/KARŞI | SKOR | HACİM
+//  • Durumlar: ALT DESTEĞE GELDİ, ÜST KIRILIMA YAKIN, ÜST/ALT ÇİZGİYİ FİTİL
+//    KIRDI, SON BAR YUKARI/AŞAĞI KIRILIM • CANLI
+//  • RSI uyumsuzluk (divergence) kontrolü
+//  • Alarm: "Alarm oluştur" penceresinde koşul olarak bu indikatörü ve
+//    "Any alert() function call" seçeneğini seçin.
+// ═══════════════════════════════════════════════════════════════════════════
+indicator("BIST Formasyon Tarama ve Alarm Sistemi", shorttitle="Formasyon Tarama", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ─────────────────────────── GİRDİLER ───────────────────────────
+grpD = "Formasyon Tespiti"
+pivLen    = input.int(10,    "Pivot Uzunluğu",                minval=2,  group=grpD, tooltip="Tepe/dip tespitinde kullanılan sol-sağ bar sayısı")
+flatTh    = input.float(0.05, "Yatay Eğim Eşiği (%/bar)",     step=0.01, group=grpD, tooltip="Eğim bu değerin altındaysa çizgi 'yatay' sayılır")
+convRatio = input.float(0.90, "Daralma Oranı (üçgen/kama)",   step=0.05, group=grpD, tooltip="Güncel genişlik / başlangıç genişliği bu oranın altındaysa formasyon 'daralan' sayılır")
+proxPct   = input.float(1.0,  "Destek/Direnç Yakınlık %",     step=0.1,  group=grpD)
+maxAge    = input.int(300,   "Maks. Formasyon Yaşı (bar)",    minval=20, group=grpD)
+volLen    = input.int(20,    "Hacim Ortalaması (bar)",        minval=1,  group=grpD)
+rsiLen    = input.int(14,    "RSI Uzunluğu",                  minval=2,  group=grpD)
+
+grpG = "Görünüm"
+showDraw  = input.bool(true, "Formasyonu Çiz",       group=grpG)
+showTable = input.bool(true, "Tarama Tablosu",       group=grpG)
+tPos      = input.string("Sağ Üst", "Tablo Konumu",  options=["Sağ Üst", "Sağ Alt", "Sol Üst", "Sol Alt"], group=grpG)
+tSize     = input.string("Küçük",   "Yazı Boyutu",   options=["Çok Küçük", "Küçük", "Normal"], group=grpG)
+
+grpA = "Alarm"
+alertsOn = input.bool(true, "Alarmlar Aktif", group=grpA, tooltip="Alarm kurarken 'Any alert() function call' koşulunu seçin")
+
+grpS = "Tarama Sembolleri"
+inclChart = input.bool(true, "Grafik Sembolünü Tabloya Ekle", group=grpS)
+e1  = input.bool(true, "", inline="s01", group=grpS)
+s1  = input.symbol("BIST:AGHOL", "Sembol 1",  inline="s01", group=grpS)
+e2  = input.bool(true, "", inline="s02", group=grpS)
+s2  = input.symbol("BIST:AKSA",  "Sembol 2",  inline="s02", group=grpS)
+e3  = input.bool(true, "", inline="s03", group=grpS)
+s3  = input.symbol("BIST:ANHYT", "Sembol 3",  inline="s03", group=grpS)
+e4  = input.bool(true, "", inline="s04", group=grpS)
+s4  = input.symbol("BIST:AKYHO", "Sembol 4",  inline="s04", group=grpS)
+e5  = input.bool(true, "", inline="s05", group=grpS)
+s5  = input.symbol("BIST:ALBRK", "Sembol 5",  inline="s05", group=grpS)
+e6  = input.bool(true, "", inline="s06", group=grpS)
+s6  = input.symbol("BIST:AKFGY", "Sembol 6",  inline="s06", group=grpS)
+e7  = input.bool(true, "", inline="s07", group=grpS)
+s7  = input.symbol("BIST:ADESE", "Sembol 7",  inline="s07", group=grpS)
+e8  = input.bool(true, "", inline="s08", group=grpS)
+s8  = input.symbol("BIST:ALKA",  "Sembol 8",  inline="s08", group=grpS)
+e9  = input.bool(true, "", inline="s09", group=grpS)
+s9  = input.symbol("BIST:ACSEL", "Sembol 9",  inline="s09", group=grpS)
+e10 = input.bool(true, "", inline="s10", group=grpS)
+s10 = input.symbol("BIST:AEFES", "Sembol 10", inline="s10", group=grpS)
+
+// ─────────────────────────── RENKLER ───────────────────────────
+COL_HDR_BG  = color.new(#1B2B4B, 0)
+COL_CELL_BG = color.new(#0D1B33, 15)
+COL_TXT     = color.new(#E0E6F0, 0)
+COL_YAPI    = color.new(#FFC15E, 0)
+COL_CYAN    = color.new(#4DD0E1, 0)
+COL_YEL     = color.new(#FFEB3B, 0)
+COL_GRN     = color.new(#00E676, 0)
+COL_RED     = color.new(#FF5252, 0)
+COL_ORN     = color.new(#FFB74D, 0)
+COL_GRY     = color.new(#90A4AE, 0)
+COL_LINE    = color.new(#B2C4D9, 20)
+COL_FILL    = color.new(#90A4AE, 88)
+
+// ─────────────────────────── YARDIMCI FONKSİYONLAR ───────────────────────────
+f_patName(int p) =>
+    switch p
+        1 => "Dikdörtgen"
+        2 => "Simetrik Üçgen"
+        3 => "Yükselen Üçgen"
+        4 => "Alçalan Üçgen"
+        5 => "Yükselen Kama"
+        6 => "Düşen Kama"
+        7 => "Yükselen Kanal"
+        8 => "Düşen Kanal"
+        => "—"
+
+f_statName(int s) =>
+    switch s
+        1 => "ALT DESTEĞE GELDİ"
+        2 => "ÜST KIRILIMA YAKIN"
+        3 => "ÜST ÇİZGİYİ FİTİL KIRDI"
+        4 => "SON BAR YUKARI KIRILIM • CANLI"
+        5 => "SON BAR AŞAĞI KIRILIM • CANLI"
+        6 => "ALT ÇİZGİYİ FİTİL KIRDI"
+        => "FORMASYON İÇİNDE"
+
+f_statColor(int s, int p) =>
+    p == 0 ? COL_GRY : s == 1 ? COL_CYAN : s == 2 ? COL_YEL : s == 3 ? COL_YEL : s == 4 ? COL_GRN : s == 5 ? COL_RED : s == 6 ? COL_ORN : COL_GRY
+
+f_fmt(float v) =>
+    na(v) ? "—" : math.abs(v) >= 100 ? str.tostring(v, "#.##") : math.abs(v) >= 1 ? str.tostring(v, "#.####") : str.tostring(v, "#.######")
+
+f_symName(string s) =>
+    arr = str.split(s, ":")
+    array.size(arr) > 1 ? array.get(arr, 1) : s
+
+// ─────────────────────────── FORMASYON TESPİTİ ───────────────────────────
+// Son iki pivot tepe ve son iki pivot dip üzerinden üst/alt trend çizgileri
+// kurulur; eğimlerine ve daralma durumuna göre formasyon sınıflandırılır.
+f_detect() =>
+    float phP  = ta.pivothigh(high, pivLen, pivLen)
+    float plP  = ta.pivotlow(low, pivLen, pivLen)
+    float rsiV = ta.rsi(close, rsiLen)
+    float volMa = ta.sma(nz(volume), volLen)
+    var float h1  = na
+    var float h2  = na
+    var int   hb1 = na
+    var int   hb2 = na
+    var float rh1 = na
+    var float rh2 = na
+    var float l1  = na
+    var float l2  = na
+    var int   lb1 = na
+    var int   lb2 = na
+    var float rl1 = na
+    var float rl2 = na
+    if not na(phP)
+        h2  := h1
+        hb2 := hb1
+        rh2 := rh1
+        h1  := phP
+        hb1 := bar_index - pivLen
+        rh1 := rsiV[pivLen]
+    if not na(plP)
+        l2  := l1
+        lb2 := lb1
+        rl2 := rl1
+        l1  := plP
+        lb1 := bar_index - pivLen
+        rl1 := rsiV[pivLen]
+    bool haveAll = not na(h2) and not na(l2)
+    float slH     = haveAll ? (h1 - h2) / (hb1 - hb2) : na
+    float slL     = haveAll ? (l1 - l2) / (lb1 - lb2) : na
+    int   startB  = haveAll ? math.min(hb2, lb2) : na
+    float upNow   = haveAll ? h1 + slH * (bar_index - hb1) : na
+    float loNow   = haveAll ? l1 + slL * (bar_index - lb1) : na
+    float upStart = haveAll ? h1 + slH * (startB - hb1) : na
+    float loStart = haveAll ? l1 + slL * (startB - lb1) : na
+    float wNow    = upNow - loNow
+    float wStart  = upStart - loStart
+    bool fresh = haveAll and bar_index - startB <= maxAge and bar_index - math.max(hb1, lb1) <= pivLen * 8
+    bool valid = fresh and wNow > 0 and wStart > 0
+    int pat = 0
+    if valid
+        float spH = slH / close * 100
+        float spL = slL / close * 100
+        bool hUp   = spH > flatTh
+        bool hDn   = spH < -flatTh
+        bool hFlat = not hUp and not hDn
+        bool lUp   = spL > flatTh
+        bool lDn   = spL < -flatTh
+        bool lFlat = not lUp and not lDn
+        bool conv  = wNow < wStart * convRatio
+        if hFlat and lFlat
+            pat := 1
+        else if hDn and lUp
+            pat := 2
+        else if hFlat and lUp
+            pat := 3
+        else if hDn and lFlat
+            pat := 4
+        else if hUp and lUp
+            pat := conv ? 5 : 7
+        else if hDn and lDn
+            pat := conv ? 6 : 8
+    int   stat   = 0
+    float seviye = na
+    float mesafe = na
+    float hedef  = na
+    float skor   = na
+    if pat > 0
+        float distUp = (upNow - close) / close * 100
+        float distLo = (close - loNow) / close * 100
+        if close > upNow
+            stat := 4
+        else if close < loNow
+            stat := 5
+        else if high > upNow
+            stat := 3
+        else if low < loNow
+            stat := 6
+        else if distUp <= proxPct
+            stat := 2
+        else if distLo <= proxPct
+            stat := 1
+        seviye := stat == 1 or stat == 5 or stat == 6 ? loNow : stat == 0 ? (distUp <= distLo ? upNow : loNow) : upNow
+        mesafe := math.round(math.abs(close - seviye) / close * 100, 2)
+        hedef  := stat == 5 or stat == 6 ? loNow - wStart : upNow + wStart
+        float convPart = math.max(0.0, math.min(1.0, 1 - wNow / wStart))
+        float volRatio = volMa > 0 ? nz(volume) / volMa : 0
+        float volPart  = math.min(volRatio, 2.0) / 2.0
+        float proxPart = math.max(0.0, 5.0 - mesafe) / 5.0
+        skor := math.round(convPart * 40 + volPart * 30 + proxPart * 30, 2)
+    bool volOk = nz(volume) > volMa
+    int divInt = 0
+    if haveAll
+        if h1 > h2 and rh1 < rh2
+            divInt := -1
+        else if l1 < l2 and rl1 > rl2
+            divInt := 1
+    [pat, stat, seviye, mesafe, hedef, skor, volOk, divInt, slH, slL, hb1, h1, lb1, l1, startB, upNow, loNow]
+
+// Tarama tablosu için sadeleştirilmiş çıktı
+f_scan() =>
+    [pat, stat, seviye, mesafe, hedef, skor, volOk, _d, _sh, _sl, _hb, _h, _lb, _l, _sb, _up, _lo] = f_detect()
+    [pat, stat, seviye, mesafe, hedef, skor, volOk, close]
+
+// ─────────────────────────── ALARM ───────────────────────────
+f_alert(bool en, string nm, int pat, int stat, float prc) =>
+    bool changed = stat != stat[1]
+    if alertsOn and en and pat > 0 and changed and stat != 0 and stat != 2
+        alert(nm + " | " + f_patName(pat) + " | " + f_statName(stat) + " | Fiyat: " + f_fmt(prc), alert.freq_once_per_bar)
+
+// ─────────────────────────── HESAPLAMALAR ───────────────────────────
+// Grafik sembolü
+[cPat, cStat, cSev, cMes, cHed, cSkor, cVolOk, cDiv, cSlH, cSlL, cHb1, cH1, cLb1, cL1, cStartB, cUp, cLo] = f_detect()
+
+// Tarama sembolleri
+[p1,  st1,  sv1,  ms1,  hd1,  sk1,  vo1,  cl1]  = request.security(s1,  timeframe.period, f_scan())
+[p2,  st2,  sv2,  ms2,  hd2,  sk2,  vo2,  cl2]  = request.security(s2,  timeframe.period, f_scan())
+[p3,  st3,  sv3,  ms3,  hd3,  sk3,  vo3,  cl3]  = request.security(s3,  timeframe.period, f_scan())
+[p4,  st4,  sv4,  ms4,  hd4,  sk4,  vo4,  cl4]  = request.security(s4,  timeframe.period, f_scan())
+[p5,  st5,  sv5,  ms5,  hd5,  sk5,  vo5,  cl5]  = request.security(s5,  timeframe.period, f_scan())
+[p6,  st6,  sv6,  ms6,  hd6,  sk6,  vo6,  cl6]  = request.security(s6,  timeframe.period, f_scan())
+[p7,  st7,  sv7,  ms7,  hd7,  sk7,  vo7,  cl7]  = request.security(s7,  timeframe.period, f_scan())
+[p8,  st8,  sv8,  ms8,  hd8,  sk8,  vo8,  cl8]  = request.security(s8,  timeframe.period, f_scan())
+[p9,  st9,  sv9,  ms9,  hd9,  sk9,  vo9,  cl9]  = request.security(s9,  timeframe.period, f_scan())
+[p10, st10, sv10, ms10, hd10, sk10, vo10, cl10] = request.security(s10, timeframe.period, f_scan())
+
+// Alarmlar (grafik sembolü + tarama sembolleri)
+f_alert(true, syminfo.ticker, cPat, cStat, close)
+f_alert(e1,  f_symName(s1),  p1,  st1,  cl1)
+f_alert(e2,  f_symName(s2),  p2,  st2,  cl2)
+f_alert(e3,  f_symName(s3),  p3,  st3,  cl3)
+f_alert(e4,  f_symName(s4),  p4,  st4,  cl4)
+f_alert(e5,  f_symName(s5),  p5,  st5,  cl5)
+f_alert(e6,  f_symName(s6),  p6,  st6,  cl6)
+f_alert(e7,  f_symName(s7),  p7,  st7,  cl7)
+f_alert(e8,  f_symName(s8),  p8,  st8,  cl8)
+f_alert(e9,  f_symName(s9),  p9,  st9,  cl9)
+f_alert(e10, f_symName(s10), p10, st10, cl10)
+
+// ─────────────────────────── GRAFİK ÇİZİMİ ───────────────────────────
+var line     upLn   = na
+var line     loLn   = na
+var linefill fillP  = na
+var label    patLbl = na
+var label    brkLbl = na
+
+if barstate.islast
+    line.delete(upLn)
+    line.delete(loLn)
+    linefill.delete(fillP)
+    label.delete(patLbl)
+    label.delete(brkLbl)
+    if showDraw and cPat > 0
+        float upStart = cH1 + cSlH * (cStartB - cHb1)
+        float loStart = cL1 + cSlL * (cStartB - cLb1)
+        upLn  := line.new(cStartB, upStart, bar_index, cUp, color=COL_LINE, width=2)
+        loLn  := line.new(cStartB, loStart, bar_index, cLo, color=COL_LINE, width=2)
+        fillP := linefill.new(upLn, loLn, COL_FILL)
+        int xm = cStartB + math.floor((bar_index - cStartB) / 2)
+        float ym = cH1 + cSlH * (xm - cHb1)
+        patLbl := label.new(xm, ym, f_patName(cPat), style=label.style_label_down, color=color.new(#546E7A, 20), textcolor=color.white, size=size.small)
+        if cStat == 4
+            brkLbl := label.new(bar_index, cUp, "▲ Yukarı Kırılım • CANLI", style=label.style_label_down, color=color.new(#00C853, 10), textcolor=color.white, size=size.small)
+        else if cStat == 5
+            brkLbl := label.new(bar_index, cLo, "▼ Aşağı Kırılım • CANLI", style=label.style_label_up, color=color.new(#D50000, 10), textcolor=color.white, size=size.small)
+        else if cStat == 3
+            brkLbl := label.new(bar_index, cUp, "▲ Trend Kırılımı (Fitil)", style=label.style_label_down, color=color.new(#FF9800, 10), textcolor=color.black, size=size.small)
+        else if cStat == 6
+            brkLbl := label.new(bar_index, cLo, "▼ Trend Kırılımı (Fitil)", style=label.style_label_up, color=color.new(#FF9800, 10), textcolor=color.black, size=size.small)
+
+// ─────────────────────────── TARAMA TABLOSU ───────────────────────────
+tblPos = tPos == "Sağ Üst" ? position.top_right : tPos == "Sağ Alt" ? position.bottom_right : tPos == "Sol Üst" ? position.top_left : position.bottom_left
+txtSz  = tSize == "Çok Küçük" ? size.tiny : tSize == "Küçük" ? size.small : size.normal
+
+var table scr = table.new(tblPos, 9, 13, border_width=1, border_color=color.new(#0A1428, 0), frame_color=color.new(#0A1428, 0), frame_width=1)
+
+f_cell(int col, int row, string txt, color txtCol, color bgCol) =>
+    table.cell(scr, col, row, txt, text_color=txtCol, bgcolor=bgCol, text_size=txtSz)
+
+f_row(int row, string sem, float fiyat, int pat, int stat, float sev, float mes, float hed, float skor, bool volok) =>
+    f_cell(0, row, sem, COL_TXT, COL_CELL_BG)
+    f_cell(1, row, f_fmt(fiyat), color.white, COL_CELL_BG)
+    f_cell(2, row, f_patName(pat), pat > 0 ? COL_YAPI : COL_GRY, COL_CELL_BG)
+    f_cell(3, row, pat > 0 ? f_statName(stat) : "FORMASYON YOK", f_statColor(stat, pat), COL_CELL_BG)
+    f_cell(4, row, pat > 0 ? f_fmt(sev) : "—", color.white, COL_CELL_BG)
+    f_cell(5, row, pat > 0 ? str.tostring(mes, "#.##") : "—", COL_YEL, COL_CELL_BG)
+    f_cell(6, row, pat > 0 ? f_fmt(hed) : "—", COL_CYAN, COL_CELL_BG)
+    f_cell(7, row, pat > 0 ? str.tostring(skor, "#.##") : "—", color.white, COL_CELL_BG)
+    f_cell(8, row, volok ? "✓" : "✗", volok ? COL_GRN : COL_RED, COL_CELL_BG)
+
+var bool rsiMerged = false
+
+if showTable and barstate.islast
+    f_cell(0, 0, "SEM",         color.white, COL_HDR_BG)
+    f_cell(1, 0, "FİYAT",       color.white, COL_HDR_BG)
+    f_cell(2, 0, "YAPI",        color.white, COL_HDR_BG)
+    f_cell(3, 0, "DURUM",       color.white, COL_HDR_BG)
+    f_cell(4, 0, "SEVİYE",      color.white, COL_HDR_BG)
+    f_cell(5, 0, "MESAFE %",    color.white, COL_HDR_BG)
+    f_cell(6, 0, "HEDEF/KARŞI", color.white, COL_HDR_BG)
+    f_cell(7, 0, "SKOR",        color.white, COL_HDR_BG)
+    f_cell(8, 0, "HACİM",       color.white, COL_HDR_BG)
+    int r = 1
+    if inclChart
+        f_row(r, syminfo.ticker, close, cPat, cStat, cSev, cMes, cHed, cSkor, cVolOk)
+        r += 1
+    if e1
+        f_row(r, f_symName(s1), cl1, p1, st1, sv1, ms1, hd1, sk1, vo1)
+        r += 1
+    if e2
+        f_row(r, f_symName(s2), cl2, p2, st2, sv2, ms2, hd2, sk2, vo2)
+        r += 1
+    if e3
+        f_row(r, f_symName(s3), cl3, p3, st3, sv3, ms3, hd3, sk3, vo3)
+        r += 1
+    if e4
+        f_row(r, f_symName(s4), cl4, p4, st4, sv4, ms4, hd4, sk4, vo4)
+        r += 1
+    if e5
+        f_row(r, f_symName(s5), cl5, p5, st5, sv5, ms5, hd5, sk5, vo5)
+        r += 1
+    if e6
+        f_row(r, f_symName(s6), cl6, p6, st6, sv6, ms6, hd6, sk6, vo6)
+        r += 1
+    if e7
+        f_row(r, f_symName(s7), cl7, p7, st7, sv7, ms7, hd7, sk7, vo7)
+        r += 1
+    if e8
+        f_row(r, f_symName(s8), cl8, p8, st8, sv8, ms8, hd8, sk8, vo8)
+        r += 1
+    if e9
+        f_row(r, f_symName(s9), cl9, p9, st9, sv9, ms9, hd9, sk9, vo9)
+        r += 1
+    if e10
+        f_row(r, f_symName(s10), cl10, p10, st10, sv10, ms10, hd10, sk10, vo10)
+        r += 1
+    // RSI uyumsuzluk satırı (grafik sembolü için) — her zaman en alt satırda
+    if not rsiMerged
+        table.merge_cells(scr, 0, 12, 7, 12)
+        rsiMerged := true
+    f_cell(0, 12, "RSI Uyumsuzluk (" + syminfo.ticker + ")", COL_TXT, COL_HDR_BG)
+    f_cell(8, 12, cDiv == 1 ? "Pozitif" : cDiv == -1 ? "Negatif" : "Yok", cDiv == 1 ? COL_GRN : cDiv == -1 ? COL_RED : COL_GRY, COL_HDR_BG)

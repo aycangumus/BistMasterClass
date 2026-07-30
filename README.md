@@ -11,6 +11,14 @@ ek BIST sembolünü aynı anda tarayarak sağ üstte bir tarama tablosu gösteri
 - **Formasyon tespiti** (pivot tabanlı üst/alt trend çizgileri ile):
   Dikdörtgen, Simetrik Üçgen, Yükselen Üçgen, Alçalan Üçgen,
   Yükselen Kama, Düşen Kama, Yükselen Kanal, Düşen Kanal
+- **Özel formasyonlar**:
+  - **İkili Tepe / İkili Dip** — aynı seviyedeki iki tepe/dip ve boyun çizgisi;
+    hedef, boyun çizgisinden formasyon derinliği kadar projeksiyon
+  - **Boğa Flaması** — güçlü yükseliş (sırık) sonrası dar konsolidasyon (bayrak);
+    hedef, kırılım seviyesine sırık yüksekliğinin eklenmesiyle bulunur;
+    kırılımda pembe "Boğa Flaması Kırılım" etiketi
+  - **Fincan** — sol kenar, yuvarlak dip ve kenara geri dönüş (U şekli);
+    hedef, kenar + fincan derinliği
 - **Grafik çizimi**: formasyon çizgileri, gölgeli dolgu, formasyon adı etiketi ve
   kırılım etiketleri (▲ Yukarı Kırılım, ▼ Aşağı Kırılım, Trend Kırılımı/Fitil)
 - **Tarama tablosu** sütunları:
@@ -44,6 +52,10 @@ ek BIST sembolünü aynı anda tarayarak sağ üstte bir tarama tablosu gösteri
 - **Yatay Eğim Eşiği**: çizginin "yatay" sayılacağı eğim sınırı (%/bar)
 - **Daralma Oranı**: üçgen/kama ile kanal ayrımı için genişlik oranı
 - **Destek/Direnç Yakınlık %**: "YAKIN/GELDİ" durumları için mesafe eşiği
+- **Özel Formasyonlar**: İkili Tepe/Dip seviye toleransı ve min. derinlik;
+  flama sırık/bayrak uzunlukları ve min. sırık yükselişi; fincan penceresi,
+  min. derinlik ve kenar yakınlığı ayrı ayrı ayarlanabilir; her özel formasyon
+  açılıp kapatılabilir
 - **Tarama Sembolleri**: 10 sembolü dilediğiniz BIST hisseleriyle değiştirebilirsiniz
 
 > Not: Eğitim amaçlıdır; yatırım tavsiyesi değildir.
